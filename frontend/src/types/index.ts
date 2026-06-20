@@ -36,3 +36,18 @@ export interface BusStats {
   busLoad: number;
   lastUpdate: number;
 }
+
+export interface ExpertConclusion {
+  id: string;
+  frameId: string;
+  arbitrationId: number;
+  dataPattern: string;
+  isAnomaly: boolean;
+  anomalyType: string;
+  diagnosis: string;
+  suggestion: string;
+  author: string;
+  createdAt: number;
+  updatedAt: number;
+  tags: string[];
+}

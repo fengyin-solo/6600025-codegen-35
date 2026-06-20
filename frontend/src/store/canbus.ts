@@ -1,7 +1,10 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { CanFrame, DbcMessage, BusStats } from '../types';
+import axios from 'axios';
+import type { CanFrame, DbcMessage, BusStats, ExpertConclusion } from '../types';
 import { parseDbc, decodeCanFrame, DEFAULT_DBC_CONTENT } from '../utils/dbc-parser';
+
+const API_BASE = 'http://localhost:8080/api';
 
 let frameIdCounter = 0;
 
@@ -13,6 +16,10 @@ export const useCanBusStore = defineStore('canbus', () => {
   const filterText = ref('');
   const isCapturing = ref(false);
   const pollInterval = ref<number | null>(null);
+
+  const conclusions = ref<ExpertConclusion[]>([]);
+  const conclusionFilter = ref('');
+  const showAnomalyOnly = ref(false);
 
   const busStats = ref<BusStats>({
     totalFrames: 0,
@@ -51,6 +58,97 @@ export const useCanBusStore = defineStore('canbus', () => {
   const busLoadPercent = computed(() => {
     return busStats.value.busLoad.toFixed(1);
   });
+
+  const filteredConclusions = computed(() => {
+    let result = conclusions.value;
+
+    if (showAnomalyOnly.value) {
+      result = result.filter(c => c.isAnomaly);
+    }
+
+    if (conclusionFilter.value.trim()) {
+      const keyword = conclusionFilter.value.trim().toLowerCase();
+      result = result.filter(c =>
+        c.diagnosis.toLowerCase().includes(keyword) ||
+        c.suggestion.toLowerCase().includes(keyword) ||
+        c.anomalyType.toLowerCase().includes(keyword) ||
+        c.author.toLowerCase().includes(keyword) ||
+        c.tags.some(t => t.toLowerCase().includes(keyword))
+      );
+    }
+
+    return result.sort((a, b) => b.updatedAt - a.updatedAt);
+  });
+
+  function getConclusionsForFrame(frameId: string): ExpertConclusion[] {
+    return conclusions.value.filter(c => c.frameId === frameId);
+  }
+
+  function getConclusionsForArbitrationId(arbId: number): ExpertConclusion[] {
+    return conclusions.value.filter(c => c.arbitrationId === arbId);
+  }
+
+  function hasAnomalyConclusion(frameId: string): boolean {
+    return conclusions.value.some(c => c.frameId === frameId && c.isAnomaly);
+  }
+
+  async function fetchConclusions(params?: Record<string, any>) {
+    try {
+      const response = await axios.get(`${API_BASE}/conclusions`, { params });
+      conclusions.value = response.data;
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch conclusions:', error);
+      conclusions.value = [];
+      return [];
+    }
+  }
+
+  async function createConclusion(conclusion: Omit<ExpertConclusion, 'id' | 'createdAt' | 'updatedAt'>) {
+    try {
+      const response = await axios.post(`${API_BASE}/conclusions`, conclusion);
+      conclusions.value.push(response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create conclusion:', error);
+      throw error;
+    }
+  }
+
+  async function updateConclusion(id: string, conclusion: Partial<ExpertConclusion>) {
+    try {
+      const response = await axios.put(`${API_BASE}/conclusions/${id}`, conclusion);
+      const index = conclusions.value.findIndex(c => c.id === id);
+      if (index !== -1) {
+        conclusions.value[index] = response.data;
+      }
+      return response.data;
+    } catch (error) {
+      console.error('Failed to update conclusion:', error);
+      throw error;
+    }
+  }
+
+  async function deleteConclusion(id: string) {
+    try {
+      await axios.delete(`${API_BASE}/conclusions/${id}`);
+      conclusions.value = conclusions.value.filter(c => c.id !== id);
+      return true;
+    } catch (error) {
+      console.error('Failed to delete conclusion:', error);
+      throw error;
+    }
+  }
+
+  async function exportConclusions(): string {
+    const header = 'ID,FrameID,CAN_ID,异常类型,诊断结论,处理建议,作者,创建时间,标签\n';
+    const rows = conclusions.value.map(c => {
+      const date = new Date(c.createdAt).toLocaleString('zh-CN');
+      const tags = c.tags.join(';');
+      return `"${c.id}","${c.frameId}","0x${c.arbitrationId.toString(16).toUpperCase()}","${c.anomalyType}","${c.diagnosis.replace(/"/g, '""')}","${c.suggestion.replace(/"/g, '""')}","${c.author}","${date}","${tags}"`;
+    }).join('\n');
+    return header + rows;
+  }
 
   function addFrame(frame: CanFrame) {
     frames.value.push(frame);
@@ -206,6 +304,10 @@ export const useCanBusStore = defineStore('canbus', () => {
     isCapturing,
     filteredFrames,
     busLoadPercent,
+    conclusions,
+    conclusionFilter,
+    showAnomalyOnly,
+    filteredConclusions,
     addFrame,
     clearFrames,
     loadMockDbc,
@@ -213,6 +315,14 @@ export const useCanBusStore = defineStore('canbus', () => {
     startCapture,
     stopCapture,
     decodeFrame,
-    exportFrames
+    exportFrames,
+    getConclusionsForFrame,
+    getConclusionsForArbitrationId,
+    hasAnomalyConclusion,
+    fetchConclusions,
+    createConclusion,
+    updateConclusion,
+    deleteConclusion,
+    exportConclusions
   };
 });

@@ -1,9 +1,15 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { useCanBusStore } from './store/canbus';
 import FrameTable from './components/FrameTable.vue';
 import SignalChart from './components/SignalChart.vue';
+import ExpertConclusionList from './components/ExpertConclusionList.vue';
+import ExpertConclusionForm from './components/ExpertConclusionForm.vue';
 
 const store = useCanBusStore();
+const rightPanelTab = ref<'chart' | 'conclusions'>('chart');
+const highlightFrameId = ref<string | null>(null);
+const showQuickAddForm = ref(false);
 
 function handleLoadDbc() {
   store.loadMockDbc();
@@ -20,11 +26,21 @@ function handleExport() {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+function handleLocateFrame(frameId: string) {
+  highlightFrameId.value = frameId;
+  setTimeout(() => {
+    highlightFrameId.value = null;
+  }, 3000);
+}
+
+function handleFrameSelected(frameId: string) {
+  console.log('Frame selected:', frameId);
+}
 </script>
 
 <template>
   <div class="h-screen flex flex-col bg-gray-900 text-gray-100 overflow-hidden">
-    <!-- Header -->
     <header class="flex items-center justify-between px-6 py-3 bg-gray-800 border-b border-gray-700 shrink-0">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 bg-cyan-600 rounded-lg flex items-center justify-center">
@@ -41,6 +57,15 @@ function handleExport() {
           class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded transition-colors border border-gray-600"
         >
           加载DBC
+        </button>
+        <button
+          @click="showQuickAddForm = true"
+          class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded transition-colors flex items-center gap-1"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          录入结论
         </button>
         <button
           @click="store.isCapturing ? store.stopCapture() : store.startCapture()"
@@ -66,20 +91,52 @@ function handleExport() {
       </div>
     </header>
 
-    <!-- Main Area -->
     <main class="flex-1 flex overflow-hidden">
-      <!-- Left Panel: Frame Table (60%) -->
       <div class="w-3/5 border-r border-gray-700 flex flex-col overflow-hidden">
-        <FrameTable />
+        <FrameTable
+          :highlight-frame-id="highlightFrameId"
+          @frame-selected="handleFrameSelected"
+        />
       </div>
 
-      <!-- Right Panel: Signal Chart (40%) -->
       <div class="w-2/5 flex flex-col overflow-hidden">
-        <SignalChart />
+        <div class="flex border-b border-gray-700 bg-gray-800">
+          <button
+            @click="rightPanelTab = 'chart'"
+            class="flex-1 px-4 py-2 text-sm font-medium transition-colors border-b-2"
+            :class="rightPanelTab === 'chart'
+              ? 'text-cyan-400 border-cyan-400 bg-gray-800'
+              : 'text-gray-400 border-transparent hover:text-gray-300'"
+          >
+            信号趋势图
+          </button>
+          <button
+            @click="rightPanelTab = 'conclusions'"
+            class="flex-1 px-4 py-2 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-1"
+            :class="rightPanelTab === 'conclusions'
+              ? 'text-purple-400 border-purple-400 bg-gray-800'
+              : 'text-gray-400 border-transparent hover:text-gray-300'"
+          >
+            专家结论库
+            <span
+              v-if="store.conclusions.length > 0"
+              class="px-1.5 py-0.5 bg-purple-900/50 text-purple-300 rounded text-xs"
+            >
+              {{ store.conclusions.length }}
+            </span>
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-hidden">
+          <SignalChart v-if="rightPanelTab === 'chart'" />
+          <ExpertConclusionList
+            v-else
+            @locate-frame="handleLocateFrame"
+          />
+        </div>
       </div>
     </main>
 
-    <!-- Status Bar -->
     <footer class="flex items-center justify-between px-6 py-1.5 bg-gray-800 border-t border-gray-700 text-xs shrink-0">
       <div class="flex items-center gap-4 text-gray-500">
         <span>
@@ -88,6 +145,7 @@ function handleExport() {
           </span>
         </span>
         <span>DBC消息: {{ store.dbcMessages.size }}</span>
+        <span class="text-purple-400">专家结论: {{ store.conclusions.length }}</span>
       </div>
       <div class="flex items-center gap-4 text-gray-500">
         <span>帧数: {{ store.busStats.totalFrames }}</span>
@@ -96,5 +154,11 @@ function handleExport() {
         <span>负载: {{ store.busLoadPercent }}%</span>
       </div>
     </footer>
+
+    <ExpertConclusionForm
+      :visible="showQuickAddForm"
+      @close="showQuickAddForm = false"
+      @saved="store.fetchConclusions"
+    />
   </div>
 </template>
